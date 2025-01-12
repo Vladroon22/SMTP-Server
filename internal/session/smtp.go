@@ -118,23 +118,18 @@ func (s *Session) sendMail(from string, to string, data []byte) error {
 				c = smtp.NewClient(conn)
 
 			case 25, 587:
-				c, err = smtp.Dial(address)
+				c, err := smtp.Dial(address)
 				if err != nil {
 					s.logger.Errorln(err)
 					continue
 				}
-
 				if port == 587 {
-					if c, err = smtp.DialStartTLS(address, &tls.Config{ServerName: host}); err != nil {
+					if c, err = smtp.DialStartTLS(address, &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}); err != nil {
 						c.Close()
 						s.logger.Errorln(err)
 						continue
 					}
 				}
-			}
-
-			if err != nil {
-				continue
 			}
 
 			var b bytes.Buffer
