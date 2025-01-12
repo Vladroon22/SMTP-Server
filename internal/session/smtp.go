@@ -28,40 +28,37 @@ func (bkd *Backend) NewSession(_ *smtp.Conn) (smtp.Session, error) {
 	}, nil
 }
 
-// Session представляет SMTP-сессию
 type Session struct {
 	logger *golog.Logger
 	From   string
 	To     []string
 }
 
-// Mail обрабатывает команду MAIL FROM
 func (s *Session) Mail(from string, opts *smtp.MailOptions) error {
 	s.logger.Infoln("Mail from:", from)
 	s.From = from
 	return nil
 }
 
-// Rcpt обрабатывает команду RCPT TO
 func (s *Session) Rcpt(to string, opts *smtp.RcptOptions) error {
 	s.logger.Infoln("RCPT To:", to)
 	s.To = append(s.To, to)
 	return nil
 }
 
-// Data обрабатывает команду DATA
 func (s *Session) Data(r io.Reader) error {
 	data, err := io.ReadAll(r)
 	if err != nil {
+		s.logger.Errorln(err)
 		return err
 	}
 
 	s.logger.Infoln("Received message: ", string(data))
 	for _, recipient := range s.To {
-		if err := sendMail(s.From, recipient, data); err != nil {
+		if err := s.sendMail(s.From, recipient, data); err != nil {
 			s.logger.Infof("Failed to send email to %s: %v\n", recipient, err)
 		} else {
-			s.logger.Infof("Email sent successfully to %s\n", recipient)
+			s.logger.Infoln("Email sent successfully to ", recipient)
 		}
 	}
 
@@ -83,19 +80,21 @@ func (s *Session) Logout() error {
 	return nil
 }
 
-func lookupMX(domain string) ([]*net.MX, error) {
+func (s *Session) lookupMX(domain string) ([]*net.MX, error) {
 	mxRecords, err := net.LookupMX(domain)
 	if err != nil {
-		return nil, fmt.Errorf("error looking up MX records: %v", err)
+		s.logger.Errorln("error looking up MX records: " + err.Error())
+		return nil, errors.New(err.Error())
 	}
 	return mxRecords, nil
 }
 
-func sendMail(from string, to string, data []byte) error {
+func (s *Session) sendMail(from string, to string, data []byte) error {
 	domain := strings.Split(to, "@")[1]
 
-	mxRecords, err := lookupMX(domain)
+	mxRecords, err := s.lookupMX(domain)
 	if err != nil {
+		s.logger.Errorln(err)
 		return err
 	}
 
@@ -113,15 +112,24 @@ func sendMail(from string, to string, data []byte) error {
 				tlsConfig := &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}
 				conn, err := tls.Dial("tcp", address, tlsConfig)
 				if err != nil {
+					s.logger.Errorln(err)
 					continue
 				}
 				c = smtp.NewClient(conn)
 
 			case 25, 587:
-				tlsConfig := &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}
-				c, err = smtp.DialStartTLS(address, tlsConfig)
+				c, err = smtp.Dial(address)
 				if err != nil {
+					s.logger.Errorln(err)
 					continue
+				}
+
+				if port == 587 {
+					if c, err = smtp.DialStartTLS(address, &tls.Config{ServerName: host}); err != nil {
+						c.Close()
+						s.logger.Errorln(err)
+						continue
+					}
 				}
 			}
 
@@ -132,33 +140,39 @@ func sendMail(from string, to string, data []byte) error {
 			var b bytes.Buffer
 			if err := dkim.Sign(&b, bytes.NewReader(data), dm.DkimOptions); err != nil {
 				c.Close()
-				return fmt.Errorf("failed to sign email with DKIM: %v", err)
+				s.logger.Errorln("failed to sign email with DKIM: ", err)
+				return errors.New(err.Error())
 			}
 			signedData := b.Bytes()
 
 			if err := c.Mail(from, &smtp.MailOptions{}); err != nil {
 				c.Close()
+				s.logger.Errorln(err)
 				continue
 			}
 
 			if err := c.Rcpt(to, &smtp.RcptOptions{}); err != nil {
 				c.Close()
+				s.logger.Errorln(err)
 				continue
 			}
 
 			w, err := c.Data()
 			if err != nil {
 				c.Close()
+				s.logger.Errorln(err)
 				continue
 			}
 
 			if _, err := w.Write(signedData); err != nil {
 				c.Close()
+				s.logger.Errorln(err)
 				continue
 			}
 
 			if err := w.Close(); err != nil {
 				c.Close()
+				s.logger.Errorln(err)
 				continue
 			}
 
