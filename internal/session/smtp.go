@@ -51,11 +51,8 @@ func (s *Session) Data(r io.Reader) error {
 	for _, recipient := range s.To {
 		if err := s.sendMail(s.From, recipient, data); err != nil {
 			log.Printf("Failed to send email to %s: %v\n", recipient, err)
-		} else {
-			log.Println("Email sent successfully to ", recipient)
 		}
 	}
-
 	return nil
 }
 
@@ -94,7 +91,9 @@ func (s *Session) sendMail(from string, to string, data []byte) error {
 
 	for _, mx := range mxRecords {
 		host := mx.Host
+
 		smtpClient := &smtp.Client{}
+		defer smtpClient.Quit()
 
 		for _, port := range []int{25, 587, 465} {
 			address := fmt.Sprintf("%s:%d", host, port)
@@ -102,6 +101,7 @@ func (s *Session) sendMail(from string, to string, data []byte) error {
 			switch port {
 			case 465:
 				tlsConfig := &tls.Config{
+					ServerName:         host,
 					MinVersion:         tls.VersionTLS12,
 					InsecureSkipVerify: true,
 					Certificates:       dm.GetCerts(),
@@ -116,25 +116,26 @@ func (s *Session) sendMail(from string, to string, data []byte) error {
 				if errTLS != nil {
 					return errTLS
 				}
-			case 25:
+			case 25, 587:
 				var err error
 				smtpClient, err = smtp.Dial(address)
 				if err != nil {
 					log.Println(err)
 					return err
 				}
-			case 587:
-				var err error
-				if smtpClient, err = smtp.DialStartTLS(address,
-					&tls.Config{
-						ServerName:         host,
-						MinVersion:         tls.VersionTLS12,
-						InsecureSkipVerify: true,
-						Certificates:       dm.GetCerts(),
-					}); err != nil {
-					smtpClient.Close()
-					log.Println(err)
-					return err
+				if port == 587 {
+					var errTLS error
+					if smtpClient, errTLS = smtp.DialStartTLS(address,
+						&tls.Config{
+							ServerName:         host,
+							MinVersion:         tls.VersionTLS12,
+							InsecureSkipVerify: true,
+							Certificates:       dm.GetCerts(),
+						}); errTLS != nil {
+						smtpClient.Close()
+						log.Println(err)
+						return err
+					}
 				}
 			}
 		}
@@ -178,7 +179,6 @@ func (s *Session) sendMail(from string, to string, data []byte) error {
 			continue
 		}
 
-		smtpClient.Quit()
 	}
 	return err
 }

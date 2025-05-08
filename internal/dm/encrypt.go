@@ -64,7 +64,8 @@ func createCerts() {
 
 	cert, err := tls.X509KeyPair(certPEM, privKeyPEM)
 	if err != nil {
-		fmt.Printf("error create tls.Certificate: %v\n", err)
+		log.Printf("error create tls.Certificate: %v\n", err)
+		os.Exit(1)
 	}
 
 	certs = append(certs, cert)
