@@ -93,28 +93,17 @@ func (s *Session) sendMail(from string, to string, data []byte) error {
 	for _, mx := range mxRecords {
 		host := mx.Host
 
-		ports := []int{}
-		var address string
-		for port := range host {
+		var smtpClient *smtp.Client
+
+		for _, port := range []int{25, 587, 465} {
+			var address string
 			ip := net.ParseIP(host)
 			if ip.To16() == nil {
 				address = fmt.Sprintf("%s:%d", host, port)
-				ports = append(ports, port)
 			} else if ip.To4() == nil {
 				address = fmt.Sprintf("[%s]:%d", host, port)
-				ports = append(ports, port)
-			} else {
-				continue
 			}
-		}
 
-		var smtpClient *smtp.Client
-
-		if len(ports) == 0 {
-			return fmt.Errorf("port == 0")
-		}
-
-		for port := range ports {
 			switch port {
 			case 467:
 				tlsConfig := &tls.Config{
@@ -131,6 +120,7 @@ func (s *Session) sendMail(from string, to string, data []byte) error {
 				}
 
 				smtpClient = smtp.NewClient(conn)
+				defer smtpClient.Quit()
 			case 587:
 				conn, err := net.DialTimeout("tcp", address, 10*time.Second)
 				if err != nil {
@@ -145,24 +135,27 @@ func (s *Session) sendMail(from string, to string, data []byte) error {
 					Certificates:       dm.GetCerts(),
 				}
 
-				var errTLS error
-				if smtpClient, errTLS = smtp.DialTLS(address, tlsConfig); errTLS != nil {
+				if smtpClient, err := smtp.DialTLS(address, tlsConfig); err != nil {
 					smtpClient.Close()
 					log.Println(err)
 					return err
 				}
 
 				smtpClient = smtp.NewClient(conn)
+				defer smtpClient.Quit()
 			case 25:
 				conn, err := net.DialTimeout("tcp", address, 10*time.Second)
 				if err != nil {
 					log.Println(err)
-					continue
+					return err
 				}
 
 				smtpClient = smtp.NewClient(conn)
+				defer smtpClient.Quit()
 			}
 		}
+
+		//if err := s.AuthPlain(); err != nil {}
 
 		var b bytes.Buffer
 		if err := dkim.Sign(&b, bytes.NewReader(data), dm.DkimOptions); err != nil {
@@ -202,7 +195,6 @@ func (s *Session) sendMail(from string, to string, data []byte) error {
 			log.Println(err)
 			continue
 		}
-		smtpClient.Quit()
 	}
 	return errors.New("failed to lookup mx records")
 }
