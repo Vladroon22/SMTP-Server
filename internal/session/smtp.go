@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"strings"
+	"time"
 
 	"github.com/Vladroon22/SmptServer/internal/dm"
 	"github.com/emersion/go-msgauth/dkim"
@@ -92,51 +93,64 @@ func (s *Session) sendMail(from string, to string, data []byte) error {
 	for _, mx := range mxRecords {
 		host := mx.Host
 
-		smtpClient := &smtp.Client{}
-		defer smtpClient.Quit()
+		var smtpClient *smtp.Client
 
 		for _, port := range []int{25, 587, 465} {
 			address := fmt.Sprintf("%s:%d", host, port)
+
+			var smtpClient *smtp.Client
 
 			switch port {
 			case 465:
 				tlsConfig := &tls.Config{
 					ServerName:         host,
 					MinVersion:         tls.VersionTLS12,
-					InsecureSkipVerify: true,
+					InsecureSkipVerify: false,
 					Certificates:       dm.GetCerts(),
 				}
-				conn, err := net.Dial("tcp", host)
+
+				conn, err := tls.Dial("tcp", address, tlsConfig)
 				if err != nil {
 					log.Println(err)
 					return err
 				}
+
+				smtpClient = smtp.NewClient(conn)
+				defer smtpClient.Quit()
+
+			case 587:
+				conn, err := net.DialTimeout("tcp", address, 5*time.Second)
+				if err != nil {
+					fmt.Println(err)
+					conn.Close()
+					continue
+				}
+
+				smtpClient = smtp.NewClient(conn)
+				defer smtpClient.Quit()
+
+				tlsConfig := &tls.Config{
+					ServerName:         host,
+					MinVersion:         tls.VersionTLS12,
+					InsecureSkipVerify: false,
+					Certificates:       dm.GetCerts(),
+				}
+
 				var errTLS error
-				smtpClient, errTLS = smtp.NewClientStartTLS(conn, tlsConfig)
-				if errTLS != nil {
-					return errTLS
-				}
-			case 25, 587:
-				var err error
-				smtpClient, err = smtp.Dial(address)
-				if err != nil {
+				if smtpClient, errTLS = smtp.DialTLS(address, tlsConfig); errTLS != nil {
+					smtpClient.Close()
 					log.Println(err)
 					return err
 				}
-				if port == 587 {
-					var errTLS error
-					if smtpClient, errTLS = smtp.DialStartTLS(address,
-						&tls.Config{
-							ServerName:         host,
-							MinVersion:         tls.VersionTLS12,
-							InsecureSkipVerify: true,
-							Certificates:       dm.GetCerts(),
-						}); errTLS != nil {
-						smtpClient.Close()
-						log.Println(err)
-						return err
-					}
+			case 25:
+				conn, err := net.DialTimeout("tcp", address, 5*time.Second)
+				if err != nil {
+					log.Println(err)
+					continue
 				}
+
+				smtpClient = smtp.NewClient(conn)
+				defer smtpClient.Quit()
 			}
 		}
 
@@ -178,7 +192,6 @@ func (s *Session) sendMail(from string, to string, data []byte) error {
 			log.Println(err)
 			continue
 		}
-
 	}
-	return err
+	return errors.New("failed to lookup mx records")
 }
