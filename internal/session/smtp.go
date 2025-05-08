@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"strings"
+	"time"
 
 	"github.com/Vladroon22/SmptServer/internal/dm"
 	"github.com/emersion/go-msgauth/dkim"
@@ -95,8 +96,12 @@ func (s *Session) sendMail(from string, to string, data []byte) error {
 		var smtpClient *smtp.Client
 
 		for _, port := range []int{25, 587, 465} {
-			address := fmt.Sprintf("%s:%d", host, port)
-
+			var address string
+			if len(host) == net.IPv4len {
+				address = fmt.Sprintf("%s:%d", host, port)
+			} else {
+				address = fmt.Sprintf("%s::%d", host, port)
+			}
 			var smtpClient *smtp.Client
 
 			switch port {
@@ -118,10 +123,10 @@ func (s *Session) sendMail(from string, to string, data []byte) error {
 				defer smtpClient.Quit()
 
 			case 587:
-				conn, err := net.Dial("tcp", address)
+				conn, err := net.DialTimeout("tcp", address, 10*time.Second)
 				if err != nil {
 					log.Println(err)
-					continue
+					return err
 				}
 
 				smtpClient = smtp.NewClient(conn)
@@ -141,7 +146,7 @@ func (s *Session) sendMail(from string, to string, data []byte) error {
 					return err
 				}
 			case 25:
-				conn, err := net.Dial("tcp", address)
+				conn, err := net.DialTimeout("tcp", address, 10*time.Second)
 				if err != nil {
 					log.Println(err)
 					continue
