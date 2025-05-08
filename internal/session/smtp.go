@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/tls"
 	"errors"
-	"fmt"
 	"io"
 	"log"
 	"net"
@@ -95,92 +94,62 @@ func (s *Session) sendMail(from string, to string, data []byte) error {
 	for _, mx := range mxRecords {
 		host := mx.Host
 
-		for _, port := range []int{25, 587, 465} {
-			address := fmt.Sprintf("%s:%d", host, port)
+		var c *smtp.Client
+		var err error
 
-			var c *smtp.Client
-			var err error
-
-			switch port {
-			case 465:
-				tlsConfig := &tls.Config{
-					ServerName:         host,
-					MinVersion:         tls.VersionTLS12,
-					InsecureSkipVerify: true,
-					Certificates:       dm.GetCerts(),
-				}
-				conn, err := tls.Dial("tcp", address, tlsConfig)
-				if err != nil {
-					log.Println(err)
-					continue
-				}
-				c = smtp.NewClient(conn)
-
-			case 25, 587:
-				var err error
-				c, err = smtp.Dial(address)
-				if err != nil {
-					log.Println(err)
-					continue
-				}
-
-				if port == 587 {
-					if c, err = smtp.DialStartTLS(address,
-						&tls.Config{
-							ServerName:         host,
-							MinVersion:         tls.VersionTLS12,
-							InsecureSkipVerify: true,
-							Certificates:       dm.GetCerts(),
-						}); err != nil {
-						c.Close()
-						log.Println(err)
-						continue
-					}
-				}
-			}
-
-			var b bytes.Buffer
-			if err := dkim.Sign(&b, bytes.NewReader(data), dm.DkimOptions); err != nil {
-				c.Close()
-				log.Println("failed to sign email with DKIM: ", err)
-				return errors.New(err.Error())
-			}
-			signedData := b.Bytes()
-
-			if err := c.Mail(from, &smtp.MailOptions{}); err != nil {
-				c.Close()
-				log.Println(err)
-				continue
-			}
-
-			if err := c.Rcpt(to, &smtp.RcptOptions{}); err != nil {
-				c.Close()
-				log.Println(err)
-				continue
-			}
-
-			w, err := c.Data()
-			if err != nil {
-				c.Close()
-				log.Println(err)
-				continue
-			}
-
-			if _, err := w.Write(signedData); err != nil {
-				c.Close()
-				log.Println(err)
-				continue
-			}
-
-			if err := w.Close(); err != nil {
-				c.Close()
-				log.Println(err)
-				continue
-			}
-
-			c.Quit()
-			return nil
+		tlsConfig := &tls.Config{
+			ServerName:         host,
+			MinVersion:         tls.VersionTLS12,
+			InsecureSkipVerify: true,
+			Certificates:       dm.GetCerts(),
 		}
+		conn, err := tls.Dial("tcp", host, tlsConfig)
+		if err != nil {
+			log.Println(err)
+			continue
+		}
+		c = smtp.NewClient(conn)
+
+		var b bytes.Buffer
+		if err := dkim.Sign(&b, bytes.NewReader(data), dm.DkimOptions); err != nil {
+			c.Close()
+			log.Println("failed to sign email with DKIM: ", err)
+			return errors.New(err.Error())
+		}
+		signedData := b.Bytes()
+
+		if err := c.Mail(from, &smtp.MailOptions{}); err != nil {
+			c.Close()
+			log.Println(err)
+			continue
+		}
+
+		if err := c.Rcpt(to, &smtp.RcptOptions{}); err != nil {
+			c.Close()
+			log.Println(err)
+			continue
+		}
+
+		w, err := c.Data()
+		if err != nil {
+			c.Close()
+			log.Println(err)
+			continue
+		}
+
+		if _, err := w.Write(signedData); err != nil {
+			c.Close()
+			log.Println(err)
+			continue
+		}
+
+		if err := w.Close(); err != nil {
+			c.Close()
+			log.Println(err)
+			continue
+		}
+
+		c.Quit()
 	}
-	return err
+	return nil
 }

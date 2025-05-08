@@ -1,14 +1,18 @@
 package dm
 
 import (
+	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/pem"
-	"io/ioutil"
+	"fmt"
 	"log"
 	"math/big"
+	"os"
+	"sync"
 	"time"
 
 	"github.com/emersion/go-msgauth/dkim"
@@ -17,6 +21,7 @@ import (
 var (
 	dkimPrivateKey *rsa.PrivateKey
 	certs          []tls.Certificate
+	certsOnce      sync.Once
 )
 
 func createCerts() {
@@ -25,21 +30,24 @@ func createCerts() {
 		log.Fatalf("Error generate key: %v", err)
 	}
 
-	// Создание шаблона сертификата
+	// Заполняем Subject
 	template := x509.Certificate{
 		SerialNumber: big.NewInt(1),
-		NotBefore:    time.Now(),
-		NotAfter:     time.Now().Add(365 * 24 * time.Hour),
-		KeyUsage:     x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
-		ExtKeyUsage: []x509.ExtKeyUsage{
-			x509.ExtKeyUsageServerAuth,
+		Subject: pkix.Name{
+			Organization: []string{"SMTP CUSTOM SERVER"},
+			CommonName:   "smtp.custom-server.com", // Ваш домен
 		},
+		DNSNames:              []string{"smtp.custom-server.com"}, // Важно для валидации
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(365 * 24 * time.Hour),
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
 	}
 
 	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &privKey.PublicKey, privKey)
 	if err != nil {
-		log.Fatalf("Ошибка создания сертификата: %v", err)
+		log.Fatalf("error: create cert: %v", err)
 	}
 
 	certPEM := pem.EncodeToMemory(&pem.Block{
@@ -52,42 +60,50 @@ func createCerts() {
 		Bytes: x509.MarshalPKCS1PrivateKey(privKey),
 	})
 
-	// Создание tls.Certificate
 	cert, err := tls.X509KeyPair(certPEM, privKeyPEM)
 	if err != nil {
-		log.Fatalf("Ошибка создания tls.Certificate: %v", err)
+		log.Fatalf("error create tls.Certificate: %v", err)
 	}
 
 	certs = append(certs, cert)
 }
 
 func init() {
-	go createCerts()
+	certsOnce.Do(createCerts)
 
-	privateKeyPEM, err := ioutil.ReadFile("./private_key.pem")
+	privateKeyPEM, err := os.ReadFile("./private_key.pem")
 	if err != nil {
-		log.Fatalf("Failed to read private key: %v", err)
+		fmt.Printf("Failed to read private key: %v", err)
+		os.Exit(1)
 	}
 
 	block, _ := pem.Decode(privateKeyPEM)
 	if block == nil {
-		log.Fatalf("Failed to parse PEM block containing the private key")
+		fmt.Printf("Failed to parse PEM block containing the private key")
+		os.Exit(1)
 	}
 
 	privateKey, err := x509.ParsePKCS8PrivateKey(block.Bytes)
 	if err != nil {
-		log.Fatalf("Failed to parse private key: %v", err)
+		fmt.Printf("Failed to parse private key: %v", err)
+		os.Exit(1)
 	}
 
-	dkimPrivateKey = privateKey.(*rsa.PrivateKey)
+	var ok bool
+	dkimPrivateKey, ok = privateKey.(*rsa.PrivateKey)
+	if !ok {
+		fmt.Printf("Expected RSA private key, got %T", privateKey)
+		os.Exit(1)
+	}
+}
+
+var DkimOptions = &dkim.SignOptions{
+	Domain:   "custom-server.com",
+	Selector: "default",
+	Signer:   dkimPrivateKey,
+	Hash:     crypto.SHA256,
 }
 
 func GetCerts() []tls.Certificate {
 	return certs
-}
-
-var DkimOptions = &dkim.SignOptions{
-	Domain:   "smtp.custom-server.com", // Укажите ваш домен
-	Selector: "default",                // Укажите селектор DKIM
-	Signer:   dkimPrivateKey,
 }
