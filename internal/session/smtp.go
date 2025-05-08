@@ -97,10 +97,11 @@ func (s *Session) sendMail(from string, to string, data []byte) error {
 
 		for _, port := range []int{25, 587, 465} {
 			var address string
-			if len(host) == net.IPv4len {
+			ip := net.ParseIP(host)
+			if ip.To16() == nil {
 				address = fmt.Sprintf("%s:%d", host, port)
 			} else {
-				address = fmt.Sprintf("%s::%d", host, port)
+				address = fmt.Sprintf("[%s]:%d", host, port)
 			}
 			var smtpClient *smtp.Client
 
