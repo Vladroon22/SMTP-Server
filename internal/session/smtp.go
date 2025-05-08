@@ -94,6 +94,7 @@ func (s *Session) sendMail(from string, to string, data []byte) error {
 		host := mx.Host
 
 		var smtpClient *smtp.Client
+		defer smtpClient.Quit()
 
 		for _, port := range []int{25, 587, 465} {
 			var address string
@@ -103,7 +104,6 @@ func (s *Session) sendMail(from string, to string, data []byte) error {
 			} else {
 				address = fmt.Sprintf("[%s]:%d", host, port)
 			}
-			var smtpClient *smtp.Client
 
 			switch port {
 			case 465:
@@ -121,17 +121,12 @@ func (s *Session) sendMail(from string, to string, data []byte) error {
 				}
 
 				smtpClient = smtp.NewClient(conn)
-				defer smtpClient.Quit()
-
 			case 587:
 				conn, err := net.DialTimeout("tcp", address, 10*time.Second)
 				if err != nil {
 					log.Println(err)
 					return err
 				}
-
-				smtpClient = smtp.NewClient(conn)
-				defer smtpClient.Quit()
 
 				tlsConfig := &tls.Config{
 					ServerName:         host,
@@ -146,6 +141,8 @@ func (s *Session) sendMail(from string, to string, data []byte) error {
 					log.Println(err)
 					return err
 				}
+
+				smtpClient = smtp.NewClient(conn)
 			case 25:
 				conn, err := net.DialTimeout("tcp", address, 10*time.Second)
 				if err != nil {
@@ -154,7 +151,6 @@ func (s *Session) sendMail(from string, to string, data []byte) error {
 				}
 
 				smtpClient = smtp.NewClient(conn)
-				defer smtpClient.Quit()
 			}
 		}
 
