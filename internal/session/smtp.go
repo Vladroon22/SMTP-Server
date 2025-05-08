@@ -93,20 +93,30 @@ func (s *Session) sendMail(from string, to string, data []byte) error {
 	for _, mx := range mxRecords {
 		host := mx.Host
 
-		var smtpClient *smtp.Client
-		defer smtpClient.Quit()
-
-		for _, port := range []int{25, 587, 465} {
-			var address string
+		ports := []int{}
+		var address string
+		for port := range host {
 			ip := net.ParseIP(host)
 			if ip.To16() == nil {
 				address = fmt.Sprintf("%s:%d", host, port)
-			} else {
+				ports = append(ports, port)
+			} else if ip.To4() == nil {
 				address = fmt.Sprintf("[%s]:%d", host, port)
+				ports = append(ports, port)
+			} else {
+				continue
 			}
+		}
 
+		var smtpClient *smtp.Client
+
+		if len(ports) == 0 {
+			return fmt.Errorf("port == 0")
+		}
+
+		for port := range ports {
 			switch port {
-			case 465:
+			case 467:
 				tlsConfig := &tls.Config{
 					ServerName:         host,
 					MinVersion:         tls.VersionTLS12,
@@ -192,6 +202,7 @@ func (s *Session) sendMail(from string, to string, data []byte) error {
 			log.Println(err)
 			continue
 		}
+		smtpClient.Quit()
 	}
 	return errors.New("failed to lookup mx records")
 }
