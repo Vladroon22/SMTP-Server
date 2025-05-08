@@ -94,8 +94,7 @@ func (s *Session) sendMail(from string, to string, data []byte) error {
 
 	for _, mx := range mxRecords {
 		host := mx.Host
-		var c *smtp.Client
-		var err error
+		smtpClient := &smtp.Client{}
 
 		for _, port := range []int{25, 587, 465} {
 			address := fmt.Sprintf("%s:%d", host, port)
@@ -107,29 +106,33 @@ func (s *Session) sendMail(from string, to string, data []byte) error {
 					InsecureSkipVerify: true,
 					Certificates:       dm.GetCerts(),
 				}
-				conn, err := tls.Dial("tcp", host, tlsConfig)
+				conn, err := net.Dial("tcp", host)
 				if err != nil {
 					log.Println(err)
 					return err
 				}
-				c = smtp.NewClient(conn)
+				var errTLS error
+				smtpClient, errTLS = smtp.NewClientStartTLS(conn, tlsConfig)
+				if errTLS != nil {
+					return errTLS
+				}
 			case 25:
 				var err error
-				c, err = smtp.Dial(address)
+				smtpClient, err = smtp.Dial(address)
 				if err != nil {
 					log.Println(err)
 					return err
 				}
 			case 587:
 				var err error
-				if c, err = smtp.DialStartTLS(address,
+				if smtpClient, err = smtp.DialStartTLS(address,
 					&tls.Config{
 						ServerName:         host,
 						MinVersion:         tls.VersionTLS12,
 						InsecureSkipVerify: true,
 						Certificates:       dm.GetCerts(),
 					}); err != nil {
-					c.Close()
+					smtpClient.Close()
 					log.Println(err)
 					return err
 				}
@@ -138,44 +141,44 @@ func (s *Session) sendMail(from string, to string, data []byte) error {
 
 		var b bytes.Buffer
 		if err := dkim.Sign(&b, bytes.NewReader(data), dm.DkimOptions); err != nil {
-			c.Close()
+			smtpClient.Close()
 			log.Println("failed to sign email with DKIM: ", err)
 			return errors.New(err.Error())
 		}
 		signedData := b.Bytes()
 
-		if err := c.Mail(from, &smtp.MailOptions{}); err != nil {
-			c.Close()
+		if err := smtpClient.Mail(from, &smtp.MailOptions{}); err != nil {
+			smtpClient.Close()
 			log.Println(err)
 			continue
 		}
 
-		if err := c.Rcpt(to, &smtp.RcptOptions{}); err != nil {
-			c.Close()
+		if err := smtpClient.Rcpt(to, &smtp.RcptOptions{}); err != nil {
+			smtpClient.Close()
 			log.Println(err)
 			continue
 		}
 
-		w, err := c.Data()
+		w, err := smtpClient.Data()
 		if err != nil {
-			c.Close()
+			smtpClient.Close()
 			log.Println(err)
 			continue
 		}
 
 		if _, err := w.Write(signedData); err != nil {
-			c.Close()
+			smtpClient.Close()
 			log.Println(err)
 			continue
 		}
 
 		if err := w.Close(); err != nil {
-			c.Close()
+			smtpClient.Close()
 			log.Println(err)
 			continue
 		}
 
-		c.Quit()
+		smtpClient.Quit()
 	}
-	return nil
+	return err
 }
