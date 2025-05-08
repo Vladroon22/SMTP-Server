@@ -9,7 +9,6 @@ import (
 	"log"
 	"net"
 	"strings"
-	"time"
 
 	"github.com/Vladroon22/SmptServer/internal/dm"
 	"github.com/emersion/go-msgauth/dkim"
@@ -119,7 +118,7 @@ func (s *Session) sendMail(from string, to string, data []byte) error {
 				defer smtpClient.Quit()
 
 			case 587:
-				conn, err := net.DialTimeout("tcp", address, 5*time.Second)
+				conn, err := net.Dial("tcp", address)
 				if err != nil {
 					log.Println(err)
 					continue
@@ -142,7 +141,7 @@ func (s *Session) sendMail(from string, to string, data []byte) error {
 					return err
 				}
 			case 25:
-				conn, err := net.DialTimeout("tcp", address, 5*time.Second)
+				conn, err := net.Dial("tcp", address)
 				if err != nil {
 					log.Println(err)
 					continue
