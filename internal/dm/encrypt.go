@@ -27,7 +27,8 @@ var (
 func createCerts() {
 	privKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
-		log.Fatalf("Error generate key: %v", err)
+		log.Printf("Error generate key: %v\n", err)
+		os.Exit(1)
 	}
 
 	// Заполняем Subject
@@ -35,9 +36,9 @@ func createCerts() {
 		SerialNumber: big.NewInt(1),
 		Subject: pkix.Name{
 			Organization: []string{"SMTP CUSTOM SERVER"},
-			CommonName:   "smtp.custom-server.com", // Ваш домен
+			CommonName:   "smtp.custom-server.com",
 		},
-		DNSNames:              []string{"smtp.custom-server.com"}, // Важно для валидации
+		DNSNames:              []string{"smtp.custom-server.com"},
 		NotBefore:             time.Now(),
 		NotAfter:              time.Now().Add(365 * 24 * time.Hour),
 		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
@@ -47,7 +48,8 @@ func createCerts() {
 
 	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &privKey.PublicKey, privKey)
 	if err != nil {
-		log.Fatalf("error: create cert: %v", err)
+		log.Printf("error: create cert: %v\n", err)
+		os.Exit(1)
 	}
 
 	certPEM := pem.EncodeToMemory(&pem.Block{
@@ -62,7 +64,7 @@ func createCerts() {
 
 	cert, err := tls.X509KeyPair(certPEM, privKeyPEM)
 	if err != nil {
-		log.Fatalf("error create tls.Certificate: %v", err)
+		fmt.Printf("error create tls.Certificate: %v\n", err)
 	}
 
 	certs = append(certs, cert)
@@ -73,26 +75,26 @@ func init() {
 
 	privateKeyPEM, err := os.ReadFile("./private_key.pem")
 	if err != nil {
-		fmt.Printf("Failed to read private key: %v", err)
+		fmt.Printf("Failed to read private key: %v\n", err)
 		os.Exit(1)
 	}
 
 	block, _ := pem.Decode(privateKeyPEM)
 	if block == nil {
-		fmt.Printf("Failed to parse PEM block containing the private key")
+		fmt.Printf("Failed to parse PEM block containing the private key\n")
 		os.Exit(1)
 	}
 
 	privateKey, err := x509.ParsePKCS8PrivateKey(block.Bytes)
 	if err != nil {
-		fmt.Printf("Failed to parse private key: %v", err)
+		fmt.Printf("Failed to parse private key: %v\n", err)
 		os.Exit(1)
 	}
 
 	var ok bool
 	dkimPrivateKey, ok = privateKey.(*rsa.PrivateKey)
 	if !ok {
-		fmt.Printf("Expected RSA private key, got %T", privateKey)
+		fmt.Printf("Expected RSA private key, got %T\n", privateKey)
 		os.Exit(1)
 	}
 }

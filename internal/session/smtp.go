@@ -93,12 +93,10 @@ func (s *Session) sendMail(from string, to string, data []byte) error {
 
 	for _, mx := range mxRecords {
 		host := mx.Host
-
 		var c *smtp.Client
 		var err error
 
 		tlsConfig := &tls.Config{
-			ServerName:         host,
 			MinVersion:         tls.VersionTLS12,
 			InsecureSkipVerify: true,
 			Certificates:       dm.GetCerts(),

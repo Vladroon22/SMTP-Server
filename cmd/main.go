@@ -2,18 +2,17 @@ package main
 
 import (
 	"context"
+	"log"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	golog "github.com/Vladroon22/GoLog"
 	"github.com/Vladroon22/SmptServer/internal/session"
 	"github.com/emersion/go-smtp"
 )
 
 func main() {
-	logger := golog.New()
 	s := smtp.NewServer(&session.Backend{})
 
 	s.Addr = ":2525"
@@ -25,10 +24,11 @@ func main() {
 	s.AllowInsecureAuth = true
 	s.EnableSMTPUTF8 = true
 
-	logger.Infoln("Starting SMTP server --> ", s.Addr)
+	log.Println("Starting SMTP server --> ", s.Addr)
 	go func() {
 		if err := s.ListenAndServe(); err != nil {
-			logger.Fatalln(err)
+			log.Println(err)
+			os.Exit(1)
 		}
 	}()
 
@@ -41,9 +41,9 @@ func main() {
 		defer cancel()
 
 		if err := s.Shutdown(ctx); err != nil {
-			logger.Errorln(err)
+			log.Println(err)
 			return
 		}
 	}()
-	logger.Infoln("Server stopped")
+	log.Println("Server stopped")
 }
