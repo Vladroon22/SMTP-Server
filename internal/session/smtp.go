@@ -110,32 +110,30 @@ func (s *Session) sendMail(from string, to string, data []byte) error {
 				conn, err := tls.Dial("tcp", host, tlsConfig)
 				if err != nil {
 					log.Println(err)
-					continue
+					return err
 				}
 				c = smtp.NewClient(conn)
-
-			case 25, 587:
+			case 25:
 				var err error
 				c, err = smtp.Dial(address)
 				if err != nil {
 					log.Println(err)
-					continue
+					return err
 				}
-				if port == 587 {
-					if c, err = smtp.DialStartTLS(address,
-						&tls.Config{
-							ServerName:         host,
-							MinVersion:         tls.VersionTLS12,
-							InsecureSkipVerify: true,
-							Certificates:       dm.GetCerts(),
-						}); err != nil {
-						c.Close()
-						log.Println(err)
-						continue
-					}
+			case 587:
+				var err error
+				if c, err = smtp.DialStartTLS(address,
+					&tls.Config{
+						ServerName:         host,
+						MinVersion:         tls.VersionTLS12,
+						InsecureSkipVerify: true,
+						Certificates:       dm.GetCerts(),
+					}); err != nil {
+					c.Close()
+					log.Println(err)
+					return err
 				}
 			}
-
 		}
 
 		var b bytes.Buffer
