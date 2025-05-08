@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -96,17 +97,46 @@ func (s *Session) sendMail(from string, to string, data []byte) error {
 		var c *smtp.Client
 		var err error
 
-		tlsConfig := &tls.Config{
-			MinVersion:         tls.VersionTLS12,
-			InsecureSkipVerify: true,
-			Certificates:       dm.GetCerts(),
+		for _, port := range []int{25, 587, 465} {
+			address := fmt.Sprintf("%s:%d", host, port)
+
+			switch port {
+			case 465:
+				tlsConfig := &tls.Config{
+					MinVersion:         tls.VersionTLS12,
+					InsecureSkipVerify: true,
+					Certificates:       dm.GetCerts(),
+				}
+				conn, err := tls.Dial("tcp", host, tlsConfig)
+				if err != nil {
+					log.Println(err)
+					continue
+				}
+				c = smtp.NewClient(conn)
+
+			case 25, 587:
+				var err error
+				c, err = smtp.Dial(address)
+				if err != nil {
+					log.Println(err)
+					continue
+				}
+				if port == 587 {
+					if c, err = smtp.DialStartTLS(address,
+						&tls.Config{
+							ServerName:         host,
+							MinVersion:         tls.VersionTLS12,
+							InsecureSkipVerify: true,
+							Certificates:       dm.GetCerts(),
+						}); err != nil {
+						c.Close()
+						log.Println(err)
+						continue
+					}
+				}
+			}
+
 		}
-		conn, err := tls.Dial("tcp", host, tlsConfig)
-		if err != nil {
-			log.Println(err)
-			continue
-		}
-		c = smtp.NewClient(conn)
 
 		var b bytes.Buffer
 		if err := dkim.Sign(&b, bytes.NewReader(data), dm.DkimOptions); err != nil {
