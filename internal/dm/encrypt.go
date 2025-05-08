@@ -31,7 +31,6 @@ func createCerts() {
 		os.Exit(1)
 	}
 
-	// Заполняем Subject
 	template := x509.Certificate{
 		SerialNumber: big.NewInt(1),
 		Subject: pkix.Name{

@@ -121,8 +121,7 @@ func (s *Session) sendMail(from string, to string, data []byte) error {
 			case 587:
 				conn, err := net.DialTimeout("tcp", address, 5*time.Second)
 				if err != nil {
-					fmt.Println(err)
-					conn.Close()
+					log.Println(err)
 					continue
 				}
 
